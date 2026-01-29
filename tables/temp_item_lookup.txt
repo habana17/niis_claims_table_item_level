@@ -1,0 +1,13 @@
+CREATE TABLE temp_item_lookup (
+    co_cd           NUMBER,
+    line_pref       VARCHAR2(10),
+    subline_pref    VARCHAR2(10),
+    iss_pref        VARCHAR2(10),
+    clm_yy          NUMBER(4),
+    clm_seq_no      NUMBER,
+    item_no         NUMBER
+);
+
+
+CREATE INDEX idx_temp_item ON temp_item_lookup 
+(co_cd, line_pref, subline_pref, iss_pref, clm_yy, clm_seq_no);

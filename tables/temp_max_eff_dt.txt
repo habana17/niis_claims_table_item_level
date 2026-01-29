@@ -1,0 +1,11 @@
+CREATE TABLE temp_max_eff_dt (
+    co_cd           NUMBER,
+    line_pref       VARCHAR2(10),
+    subline_pref    VARCHAR2(10),
+    iss_pref        VARCHAR2(10),
+    pol_yy          NUMBER(4),
+    pol_seq_no      NUMBER,
+    ren_seq_no      NUMBER,
+    item_no         NUMBER,
+    max_eff_dt      DATE
+);

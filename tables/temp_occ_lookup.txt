@@ -1,0 +1,15 @@
+CREATE TABLE temp_occ_lookup (
+    co_cd           NUMBER,
+    line_pref       VARCHAR2(10),
+    subline_pref    VARCHAR2(10),
+    iss_pref        VARCHAR2(10),
+    pol_yy          NUMBER(4),
+    pol_seq_no      NUMBER,
+    ren_seq_no      NUMBER,
+    clm_yy          NUMBER(4),
+    clm_seq_no      NUMBER,
+    occ_cd          VARCHAR2(10)
+);
+
+CREATE INDEX idx_temp_occ ON temp_occ_lookup 
+(co_cd, line_pref, subline_pref, iss_pref, pol_yy, pol_seq_no, ren_seq_no, item_no);
