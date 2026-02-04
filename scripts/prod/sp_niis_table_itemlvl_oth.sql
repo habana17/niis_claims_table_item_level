@@ -1,5 +1,5 @@
 CREATE
-OR REPLACE PROCEDURE sp_niis_table_itemlvl_fi AS
+OR REPLACE PROCEDURE sp_niis_table_itemlvl_oth AS
 
 v_batch_id temp_niis_item_data.batch_id%TYPE;
 
@@ -7,27 +7,27 @@ BEGIN
 
 /******************************************************************************
 
-NAME:       sp_niis_table_itemlvl_fi
-PURPOSE:    niis table item level data 
+NAME:       sp_niis_table_itemlvl_oth
+PURPOSE:    niis table item level data for AV,EN,GA,MH,MN
 
 REVISIONS:
 Ver          Date                  Author             Description
 ---------  ----------          ---------------  ------------------------------------
-1.0        01/13/2026             Francis           1. Create sp_niis_table_itemlvl_fi
-2.0        02/02/2026             Francis           1. added batch_id,creation_date,last_update_date    
+1.0        02/02/2026             Francis           1. Create sp_niis_table_itemlvl_oth
 
 NOTES:
 
 ******************************************************************************/
 
 -- =============================================================================
--- STEP 1: Initial INSERT - Only essential data from niis table - 13s
+-- STEP 1: Initial INSERT - Only essential data from niis table -
 -- =============================================================================
 
 -- Get ONE batch id
     SELECT seq_niis_item_batch_id.NEXTVAL
     INTO   v_batch_id
     FROM   dual;
+
 
 INSERT INTO temp_niis_item_data (
             co_cd,line_pref,subline_pref,iss_pref,pol_yy,
@@ -37,7 +37,6 @@ INSERT INTO temp_niis_item_data (
             itm_loss_paid,itm_expense_paid,policy_number,claim_number,
             batch_id,creation_date,last_update_date
 )
-
 SELECT              
                     c.co_cd,c.line_pref,c.subline_pref,c.iss_pref,
                     c.pol_yy,c.pol_seq_no,c.ren_seq_no,c.pol_type,
@@ -58,12 +57,19 @@ SELECT
                     c.line_pref||'-'||c.subline_pref||'-'||
                         c.iss_pref||'-'||LTRIM(RTRIM(SUBSTR(TO_CHAR(c.clm_yy),3,2)))||'-'||
                         LTRIM(RTRIM(TO_CHAR(c.clm_seq_no,'09999'))) as claim_number,
-                        
-                    v_batch_id,sysdate,sysdate    
 
+                    v_batch_id,sysdate,sysdate  
+                    
                FROM niis_clmprlds a, niis_clm_hist b, niis_claims c
                WHERE a.co_cd = b.co_cd
-               AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema 
+               
+               AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+               AND c.line_pref IN ('AV','EN','GA','MH','MN')
+
+
                AND a.line_pref = b.line_pref
                AND a.subline_pref = b.subline_pref
                AND a.iss_pref = b.iss_pref
@@ -80,7 +86,12 @@ SELECT
                AND a.hist_seq_no = (SELECT MAX(d.hist_seq_no)
                                        FROM niis_clm_hist d, niis_clmprlds c
                                        WHERE d.co_cd = c.co_cd
-                                       AND 'FI' in (c.schema_name,d.schema_name)
+
+                                       AND (d.schema_name IN ('CAS','MH','MN') 
+                                            OR c.schema_name IN ('CAS','MH','MN') 
+                                            )
+                                       AND d.line_pref IN ('AV','EN','GA','MH','MN')
+
                                        AND d.line_pref = c.line_pref
                                        AND d.subline_pref = c.subline_pref
                                        AND d.iss_pref = c.iss_pref
@@ -101,13 +112,16 @@ SELECT
                     c.clm_yy,c.clm_seq_no,c.loss_dt,c.loss_desc,c.loss_det,
                     c.event_no,c.loss_cat_cd,c.curr_cd,c.clm_stat_cd,
                     a.item_no, c.org_type
-                    ;
+         ORDER BY   c.co_cd,c.line_pref,c.subline_pref,c.iss_pref,
+                    c.pol_yy,c.pol_seq_no,c.ren_seq_no,c.pol_type,
+                    c.clm_yy,c.clm_seq_no;
 
 
 commit;
 
+
 -- =============================================================================
--- STEP 2: UPDATE - UPDATE ITEM title - 14.5s
+-- STEP 2: UPDATE - UPDATE ITEM title 39.8
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -153,8 +167,11 @@ USING (
           ON a.pol_rec_no = b.pol_rec_no
         WHERE NVL(a.pol_stat,'X') <> '5'
           AND b.item_title IS NOT NULL
-          AND a.schema_name = 'FI'
-          AND b.schema_name = 'FI'
+          AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            
+                            )
+               AND a.line_pref IN ('AV','EN','GA','MH','MN')
     )
     WHERE rn = 1
 ) src
@@ -173,13 +190,13 @@ WHEN MATCHED THEN
 UPDATE SET
     main.item_title = src.item_title,
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;
 
 -- =============================================================================
--- STEP 3: UPDATE - UPDATE ITEM DESCRIPTION
+-- STEP 3: UPDATE - UPDATE ITEM DESCRIPTION 42
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -225,8 +242,10 @@ USING (
           ON a.pol_rec_no = b.pol_rec_no
         WHERE NVL(a.pol_stat,'X') <> '5'
           AND b.item_desc IS NOT NULL
-          AND a.schema_name = 'FI'
-          AND b.schema_name = 'FI'
+          AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            )
+               AND a.line_pref IN ('AV','EN','GA','MH','MN')
     )
     WHERE rn = 1
 ) src
@@ -245,13 +264,12 @@ WHEN MATCHED THEN
 UPDATE SET
     main.item_desc = src.item_desc,
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
-
 -- =============================================================================
--- STEP 4: UPDATE - UPDATE POLICY GROSS SUM INSURED
+-- STEP 4: UPDATE - UPDATE POLICY GROSS SUM INSURED 65
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data t
@@ -297,19 +315,19 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_gross_sum_insured = s.pol_gross_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
 UPDATE temp_niis_item_data
 SET pol_gross_sum_insured = 0,last_update_date = sysdate
 WHERE pol_gross_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
 -- =============================================================================
--- STEP 5: UPDATE - UPDATE POLICY RETAINED SUM INSURED
+-- STEP 5: UPDATE - UPDATE POLICY RETAINED SUM INSURED 66.8
 -- =============================================================================
 MERGE INTO temp_niis_item_data t
 USING (
@@ -355,16 +373,17 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_retained_sum_insured = s.pol_retained_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
 UPDATE temp_niis_item_data
 SET pol_retained_sum_insured = 0,last_update_date = sysdate
 WHERE pol_retained_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
+
 
 -- =============================================================================
 -- STEP 6: UPDATE - UPDATE POLICY QS SUM INSURED
@@ -421,7 +440,7 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_qs_sum_insured = s.pol_qs_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -429,7 +448,7 @@ UPDATE temp_niis_item_data
 SET pol_qs_sum_insured = 0,
 last_update_date = sysdate
 WHERE pol_qs_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -490,7 +509,7 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_surplus_sum_insured = s.pol_surplus_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -498,7 +517,7 @@ UPDATE temp_niis_item_data
 SET pol_surplus_sum_insured = 0,
 last_update_date = sysdate
 WHERE pol_surplus_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -558,7 +577,7 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_pmmsc_sum_insured  = s.pol_pmmsc_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -566,7 +585,7 @@ UPDATE temp_niis_item_data
 SET pol_pmmsc_sum_insured = 0,
 last_update_date = sysdate
 WHERE pol_pmmsc_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -626,14 +645,14 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_other_treaty_sum_insured = s.pol_other_treaty_sum_insured,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
 UPDATE temp_niis_item_data
 SET pol_other_treaty_sum_insured = 0,last_update_date = sysdate
 WHERE pol_other_treaty_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -684,7 +703,7 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.pol_facul_sum_insured = s.pol_facul_sum_insured,
 last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;
@@ -693,12 +712,13 @@ UPDATE temp_niis_item_data
 SET pol_facul_sum_insured = 0,
 last_update_date = sysdate
 WHERE pol_facul_sum_insured IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
+
 -- =============================================================================
--- STEP 11: UPDATE - UPDATE ITEM GROSS SUM INSURED 44s
+-- STEP 11: UPDATE - UPDATE ITEM GROSS SUM INSURED 
 -- =============================================================================
 MERGE INTO temp_niis_item_data main
 USING (
@@ -725,7 +745,12 @@ USING (
     WHERE a.dist_stat    = '3'
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')  
+
     GROUP BY
         a.co_cd,
         a.line_pref,
@@ -752,17 +777,17 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_gross_sum_insured  = NVL(src.itm_gross_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN')  ;
 
 UPDATE temp_niis_item_data
 SET itm_gross_sum_insured = 0,last_update_date = sysdate
 WHERE itm_gross_sum_insured IS NULL
-and line_pref = 'FI';      
+and line_pref IN ('AV','EN','GA','MH','MN')  ;      
 
 COMMIT;
 
 -- =============================================================================
--- STEP 12: UPDATE - UPDATE ITEM RETAINED SUM INSURED 34.5s
+-- STEP 12: UPDATE - UPDATE ITEM RETAINED SUM INSURED 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -791,7 +816,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type = 'N'
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')  
     GROUP BY
         a.co_cd,
         a.line_pref,
@@ -818,19 +847,19 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_retained_sum_insured  = NVL(src.itm_retained_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN') ;
 
 UPDATE temp_niis_item_data
 SET itm_retained_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_retained_sum_insured IS NULL
-and line_pref = 'FI';    
+and line_pref IN ('AV','EN','GA','MH','MN') ;    
 
 COMMIT;
 
 
 -- =============================================================================
--- STEP 13: UPDATE - UPDATE ITEM QS SUM INSURED 14.5s
+-- STEP 13: UPDATE - UPDATE ITEM QS SUM INSURED 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -859,7 +888,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type    = 'T'
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
       AND EXISTS (
           SELECT 1
           FROM niis_outreaty x
@@ -894,18 +927,18 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_qs_sum_insured = NVL(src.itm_qs_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN');
 
 UPDATE temp_niis_item_data
 SET itm_qs_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_qs_sum_insured IS NULL
-and line_pref = 'FI';    
+and line_pref IN ('AV','EN','GA','MH','MN');    
 
 COMMIT;
 
 -- =============================================================================
--- STEP 14: UPDATE - UPDATE ITEM SURPLUS SUM INSURE 15.8s
+-- STEP 14: UPDATE - UPDATE ITEM SURPLUS SUM INSURE 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -934,7 +967,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type    = 'T'
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
       AND EXISTS (
           SELECT 1
           FROM niis_outreaty x
@@ -969,19 +1006,19 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_surplus_sum_insured = NVL(src.itm_surplus_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN') ;
 
 UPDATE temp_niis_item_data
 SET itm_surplus_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_surplus_sum_insured IS NULL
-and line_pref = 'FI';   
+and line_pref IN ('AV','EN','GA','MH','MN') ;   
 
 
 COMMIT;
 
 -- =============================================================================
--- STEP 15: UPDATE - UPDATE ITEM PMMSC SUM INSURE 14.3s 
+-- STEP 15: UPDATE - UPDATE ITEM PMMSC SUM INSURE 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -1010,7 +1047,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type    = 'T'
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
       AND EXISTS (
           SELECT 1
           FROM niis_outreaty x
@@ -1045,19 +1086,19 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_pmmsc_sum_insured = NVL(src.itm_pmmsc_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI'
+    where main.line_pref IN ('AV','EN','GA','MH','MN') 
     ;
 
 UPDATE temp_niis_item_data
 SET itm_pmmsc_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_pmmsc_sum_insured IS NULL
-and line_pref = 'FI';   
+and line_pref IN ('AV','EN','GA','MH','MN') ;   
 
 COMMIT;
 
 -- =============================================================================
--- STEP 16: UPDATE - UPDATE ITEM OTHER TREATY SUM INSURED 12s
+-- STEP 16: UPDATE - UPDATE ITEM OTHER TREATY SUM INSURED 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -1086,7 +1127,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type    = 'T'
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
       AND EXISTS (
           SELECT 1
           FROM niis_outreaty x
@@ -1121,20 +1166,20 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_other_treaty_sum_insured = NVL(src.itm_other_treaty_sum_insured, 0),
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN') ;
 
 
 UPDATE temp_niis_item_data
 SET itm_other_treaty_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_other_treaty_sum_insured IS NULL
-and line_pref = 'FI'; 
+and line_pref IN ('AV','EN','GA','MH','MN') ; 
 
 COMMIT;
 
 
 -- =============================================================================
--- STEP 17: UPDATE - UPDATE ITEM FACUL SUM INSURED 16.7s
+-- STEP 17: UPDATE - UPDATE ITEM FACUL SUM INSURED 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -1163,7 +1208,11 @@ USING (
       AND a.redist_stat IN (1,3)
       AND a.acct_neg_dt IS NULL
       AND b.shr_type    = 'F'   -- Facultative
-      AND 'FI' in (a.schema_name,b.schema_name,c.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            OR c.schema_name IN ('CAS','MH','MN')
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
     GROUP BY
         a.co_cd,
         a.line_pref,
@@ -1190,15 +1239,16 @@ WHEN MATCHED THEN
 UPDATE SET
     main.itm_facul_sum_insured = NVL(src.itm_facul_sum_insured, 0),
     last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN') ;
 
 UPDATE temp_niis_item_data
 SET itm_facul_sum_insured = 0,
 last_update_date = sysdate
 WHERE itm_facul_sum_insured IS NULL
-and line_pref = 'FI'; 
+and line_pref IN ('AV','EN','GA','MH','MN') ; 
 
 COMMIT;    
+
 
 -- =============================================================================
 -- STEP 18: UPDATE - UPDATE item recovery
@@ -1227,7 +1277,10 @@ USING (
 
     WHERE b.fla_stat_cd <> 'C'
       AND a.loss_adv_amt < 0
-      AND 'FI' in (a.schema_name,b.schema_name) --schema
+      AND (a.schema_name IN ('CAS','MH','MN') 
+                            OR b.schema_name IN ('CAS','MH','MN') 
+                            )
+      AND a.line_pref IN ('AV','EN','GA','MH','MN')
     GROUP BY
         a.co_cd,
         a.line_pref,
@@ -1249,19 +1302,268 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.itm_recoveries = s.recoveries,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 UPDATE temp_niis_item_data
 SET itm_recoveries = 0,
 last_update_date = sysdate
 WHERE itm_recoveries IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
 
 -- =============================================================================
--- STEP 19: UPDATE - PROCESS INCEPT DATE & EXPIRY DATE 30.6s
+-- STEP 19: UPDATE - UPDATE STATUS 27s
+-- =============================================================================
+
+UPDATE temp_niis_item_data t
+SET t.status = (
+    SELECT s.clm_stat_des
+    FROM clm_stat s
+    WHERE s.co_cd = t.co_cd
+      AND s.clm_stat_cd = t.clm_stat_cd
+),
+t.last_update_date = sysdate
+WHERE EXISTS (
+    SELECT 1
+    FROM clm_stat s
+    WHERE s.co_cd = t.co_cd
+      AND s.clm_stat_cd = t.clm_stat_cd
+)
+and t.line_pref IN ('AV','EN','GA','MH','MN')
+;
+
+COMMIT;
+
+
+-- =============================================================================
+-- STEP 20: UPDATE - UPDATE FRONTING/REFERRED 
+-- =============================================================================
+
+MERGE INTO temp_niis_item_data t
+USING (
+    SELECT
+        co_cd,
+        line_pref,
+        subline_pref,
+        iss_pref,
+        pol_yy,
+        pol_seq_no,
+        ren_seq_no,
+        pol_type,
+        ri_name AS fronting_referred
+    FROM (
+        SELECT
+            p.co_cd,
+            p.line_pref,
+            p.subline_pref,
+            p.iss_pref,
+            p.pol_yy,
+            p.pol_seq_no,
+            p.ren_seq_no,
+            p.pol_type,
+            r.ri_name,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    p.co_cd,
+                    p.line_pref,
+                    p.subline_pref,
+                    p.iss_pref,
+                    p.pol_yy,
+                    p.pol_seq_no,
+                    p.ren_seq_no,
+                    p.pol_type
+                ORDER BY p.eff_dt DESC
+            ) rn
+        FROM niis_polbasic p
+        JOIN niis_rinsurer r
+          ON r.co_cd = p.co_cd
+         AND r.ri_cd = p.referring_inst_cd
+        WHERE p.referring_inst_cd IS NOT NULL
+          AND NVL(p.pol_stat,'X') <> '5'
+          AND p.schema_name IN ('CAS','MH','MN') 
+          AND p.line_pref IN ('AV','EN','GA','MH','MN')
+    )
+    WHERE rn = 1
+) s
+ON (
+       t.co_cd        = s.co_cd
+   AND t.line_pref    = s.line_pref
+   AND t.subline_pref = s.subline_pref
+   AND t.iss_pref     = s.iss_pref
+   AND t.pol_yy       = s.pol_yy
+   AND t.pol_seq_no   = s.pol_seq_no
+   AND t.ren_seq_no   = s.ren_seq_no
+   AND t.pol_type     = s.pol_type
+)
+WHEN MATCHED THEN
+UPDATE SET
+    t.fronting_referred = s.fronting_referred,
+    t.last_update_date = sysdate
+    where t.line_pref IN ('AV','EN','GA','MH','MN');
+
+COMMIT;
+
+-- =============================================================================
+-- STEP 21: UPDATE - UPDATE INTM NUMBER & INTERMEDIARY NAME 
+-- =============================================================================
+
+
+MERGE INTO temp_niis_item_data t
+USING (
+    SELECT *
+    FROM (
+        SELECT
+            x.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    co_cd, line_pref, subline_pref,
+                    iss_pref, pol_yy, pol_seq_no, ren_seq_no
+                ORDER BY priority
+            ) rn
+        FROM (
+            -- 1️⃣ Invoice / commission intermediary (highest priority)
+            SELECT
+                a.co_cd,
+                a.line_pref,
+                a.subline_pref,
+                a.iss_pref,
+                a.pol_yy,
+                a.pol_seq_no,
+                a.ren_seq_no,
+                b.intm_no,
+                c.intm_name,
+                1 AS priority
+            FROM niis_invoice a
+            JOIN niis_invcomm b
+              ON a.co_cd = b.co_cd
+             AND a.line_pref = b.line_pref
+             AND a.bill_yy = b.bill_yy
+             AND a.bill_seq_no = b.bill_seq_no
+            JOIN intrmdry c
+              ON b.co_cd = c.co_cd
+             AND b.intm_no = c.intm_no
+            WHERE a.endt_seq_no = 0
+              AND (a.schema_name IN ('CAS','MH','MN')
+                   OR b.schema_name IN ('CAS','MH','MN'))
+              AND a.line_pref IN ('AV','EN','GA','MH','MN')
+
+            UNION ALL
+
+            -- 2️⃣ Fallback for pol_type = 'I'
+            SELECT
+                a.co_cd,
+                a.line_pref,
+                a.subline_pref,
+                a.iss_pref,
+                a.pol_yy,
+                a.pol_seq_no,
+                a.ren_seq_no,
+                b.ri_cd   AS intm_no,
+                c.ri_name AS intm_name,
+                2 AS priority
+            FROM niis_polbasic a
+            JOIN niis_inpolicy b
+              ON a.pol_rec_no = b.pol_rec_no
+            JOIN niis_rinsurer c
+              ON a.co_cd = c.co_cd
+             AND b.ri_cd = c.ri_cd
+            WHERE a.pol_type = 'I'
+              AND a.endt_seq_no = 0
+              AND (a.schema_name IN ('CAS','MH','MN')
+                   OR b.schema_name IN ('CAS','MH','MN'))
+              AND a.line_pref IN ('AV','EN','GA','MH','MN')
+        ) x
+    )
+    WHERE rn = 1
+) s
+ON (
+       t.co_cd        = s.co_cd
+   AND t.line_pref    = s.line_pref
+   AND t.subline_pref = s.subline_pref
+   AND t.iss_pref     = s.iss_pref
+   AND t.pol_yy       = s.pol_yy
+   AND t.pol_seq_no   = s.pol_seq_no
+   AND t.ren_seq_no   = s.ren_seq_no
+)
+WHEN MATCHED THEN
+UPDATE SET
+    t.intm_number        = s.intm_no,
+    t.intermediary_name  = s.intm_name,
+    t.last_update_date  = SYSDATE
+WHERE t.line_pref IN ('AV','EN','GA','MH','MN');
+
+COMMIT;
+
+-- =============================================================================
+-- STEP 22: UPDATE - UPDATE WITH EX-GRATIA
+-- =============================================================================
+
+MERGE INTO temp_niis_item_data main
+USING (
+    SELECT DISTINCT
+        x.co_cd,
+        x.line_pref,
+        x.subline_pref,
+        x.iss_pref,
+        x.clm_yy,
+        x.clm_seq_no,
+        'Y' AS with_ex_gratia
+    FROM niis_clm_loss x
+    JOIN niis_clm_hist y
+      ON x.co_cd        = y.co_cd
+     AND x.line_pref    = y.line_pref
+     AND x.subline_pref = y.subline_pref
+     AND x.iss_pref     = y.iss_pref
+     AND x.clm_yy       = y.clm_yy
+     AND x.clm_seq_no   = y.clm_seq_no
+     AND x.hist_seq_no  = y.hist_seq_no
+    WHERE y.fla_stat_cd != 'C'
+      AND (x.schema_name IN ('CAS','MH','MN')
+                   OR y.schema_name IN ('CAS','MH','MN'))
+      AND x.line_pref IN ('AV','EN','GA','MH','MN')
+      AND (
+           INSTR(UPPER(y.remarks), 'GRATIA') <> 0
+        OR NVL(x.x_gratia_tag, 'N') = 'Y'
+      )
+      AND EXISTS (
+          SELECT 1
+          FROM temp_niis_item_data t
+          WHERE t.co_cd = x.co_cd
+            AND t.line_pref = x.line_pref
+            AND t.subline_pref = x.subline_pref
+            AND t.iss_pref = x.iss_pref
+            AND t.clm_yy = x.clm_yy
+            AND t.clm_seq_no = x.clm_seq_no
+      )
+) src
+ON (
+       main.co_cd        = src.co_cd
+   AND main.line_pref    = src.line_pref
+   AND main.subline_pref = src.subline_pref
+   AND main.iss_pref     = src.iss_pref
+   AND main.clm_yy       = src.clm_yy
+   AND main.clm_seq_no   = src.clm_seq_no
+)
+WHEN MATCHED THEN
+UPDATE SET main.with_ex_gratia = src.with_ex_gratia,
+main.last_update_date = sysdate
+where main.line_pref IN ('AV','EN','GA','MH','MN');
+
+COMMIT;
+
+UPDATE temp_niis_item_data
+SET with_ex_gratia = 'N',
+last_update_date = sysdate
+WHERE with_ex_gratia IS NULL
+and line_pref IN ('AV','EN','GA','MH','MN');
+
+COMMIT;
+
+
+-- =============================================================================
+-- STEP 23: UPDATE - PROCESS INCEPT DATE & EXPIRY DATE 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data t --incept
@@ -1280,7 +1582,8 @@ USING (
         pb.incept_dt
     FROM niis_polbasic pb
     WHERE pb.endt_seq_no = 0
-    AND pb.schema_name = 'FI' --schema 
+    AND pb.schema_name IN ('CAS','MH','MN') --schema 
+    AND pb.line_pref IN ('AV','EN','GA','MH','MN')
     AND NOT EXISTS (
         SELECT 1 FROM niis_max_incept_dt mid
         WHERE mid.co_cd = pb.co_cd
@@ -1304,7 +1607,7 @@ ON (
 WHEN MATCHED THEN
     UPDATE SET t.incept_date = s.incept_dt,
     t.last_update_date = sysdate
-    where t.line_pref = 'FI';
+    where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;    
@@ -1326,7 +1629,8 @@ USING (
         pb.expiry_dt
     FROM niis_polbasic pb
     WHERE pb.endt_seq_no = 0
-    AND pb.schema_name = 'FI' --schema 
+    AND pb.schema_name IN ('CAS','MH','MN') --schema 
+    AND pb.line_pref IN ('AV','EN','GA','MH','MN')
     AND NOT EXISTS (
         SELECT 1 FROM niis_max_expiry_dt mid
         WHERE mid.co_cd = pb.co_cd
@@ -1350,14 +1654,15 @@ ON (
 WHEN MATCHED THEN
     UPDATE SET t.expiry_date = s.expiry_dt,
     t.last_update_date = sysdate
-    where t.line_pref = 'FI';
+    where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;  
 
 
+
 -- =============================================================================
--- STEP 20: UPDATE - PROCESS OCCUPANCY - 589s to merge 32s
+-- STEP 24: UPDATE - PROCESS OCCUPANCY 
 -- =============================================================================
 
 
@@ -1385,10 +1690,12 @@ WHERE b.hist_seq_no = (
     AND b.clm_yy = x.clm_yy
     AND b.clm_seq_no = x.clm_seq_no
     AND x.fla_stat_cd != 'C'
-    AND 'FI' in (x.schema_name)
+    AND x.schema_name IN ('CAS','MH','MN') --schema 
+    AND x.line_pref IN ('AV','EN','GA','MH','MN')
     
 )
-AND 'FI' in (b.schema_name)
+AND b.schema_name IN ('CAS','MH','MN') --schema 
+AND b.line_pref IN ('AV','EN','GA','MH','MN')
 GROUP BY b.co_cd, b.line_pref, b.subline_pref, b.iss_pref, b.clm_yy, b.clm_seq_no;
 
 COMMIT;
@@ -1408,7 +1715,8 @@ FROM niis_polbasic u
 INNER JOIN niis_fireitem v ON u.pol_rec_no = v.pol_rec_no
 WHERE NVL(u.pol_stat,'0') != '5'
 AND v.occ_cd IS NOT NULL
-AND u.schema_name = 'FI' --schema
+AND u.schema_name IN ('CAS','MH','MN') --schema 
+AND u.line_pref IN ('AV','EN','GA','MH','MN')
 AND EXISTS (
     SELECT 1 FROM temp_niis_item_data t
     WHERE t.co_cd = u.co_cd
@@ -1463,32 +1771,14 @@ INNER JOIN niis_polbasic a
     AND a.ren_seq_no = main.ren_seq_no
     AND a.eff_dt = med.max_eff_dt
     AND NVL(a.pol_stat,'0') != '5'
-    AND a.schema_name = 'FI'
+    AND a.schema_name IN ('CAS','MH','MN') --schema 
+    AND a.line_pref IN ('AV','EN','GA','MH','MN')
 INNER JOIN niis_fireitem b
     ON b.pol_rec_no = a.pol_rec_no
     AND b.item_no = til.item_no;
 
 COMMIT;
 
-
--- UPDATE temp_niis_item_data t
--- SET t.occupancy = (
---     SELECT occ.occ_title
---     FROM temp_occ_lookup tol
---     INNER JOIN niis_occupancy occ
---         ON occ.co_cd = tol.co_cd
---         AND occ.occ_cd = tol.occ_cd
---     WHERE tol.co_cd = t.co_cd
---         AND tol.line_pref = t.line_pref
---         AND tol.subline_pref = t.subline_pref
---         AND tol.iss_pref = t.iss_pref
---         AND tol.pol_yy = t.pol_yy
---         AND tol.pol_seq_no = t.pol_seq_no
---         AND tol.ren_seq_no = t.ren_seq_no
---         AND tol.clm_yy = t.clm_yy
---         AND tol.clm_seq_no = t.clm_seq_no
---         AND ROWNUM = 1
--- );
 
 MERGE INTO temp_niis_item_data t
 USING (
@@ -1533,169 +1823,14 @@ WHEN MATCHED THEN
 UPDATE SET
     t.occupancy = src.occ_title,
     t.last_update_date = sysdate
-    where t.line_pref = 'FI';
+    where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;
 
--- =============================================================================
--- STEP 21: UPDATE - UPDATE FRONTING/REFERRED 0.6s
--- =============================================================================
-
-MERGE INTO temp_niis_item_data t
-USING (
-    SELECT
-        co_cd,
-        line_pref,
-        subline_pref,
-        iss_pref,
-        pol_yy,
-        pol_seq_no,
-        ren_seq_no,
-        pol_type,
-        ri_name AS fronting_referred
-    FROM (
-        SELECT
-            p.co_cd,
-            p.line_pref,
-            p.subline_pref,
-            p.iss_pref,
-            p.pol_yy,
-            p.pol_seq_no,
-            p.ren_seq_no,
-            p.pol_type,
-            r.ri_name,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    p.co_cd,
-                    p.line_pref,
-                    p.subline_pref,
-                    p.iss_pref,
-                    p.pol_yy,
-                    p.pol_seq_no,
-                    p.ren_seq_no,
-                    p.pol_type
-                ORDER BY p.eff_dt DESC
-            ) rn
-        FROM niis_polbasic p
-        JOIN niis_rinsurer r
-          ON r.co_cd = p.co_cd
-         AND r.ri_cd = p.referring_inst_cd
-        WHERE p.referring_inst_cd IS NOT NULL
-          AND NVL(p.pol_stat,'X') <> '5'
-          AND p.schema_name = 'FI'
-    )
-    WHERE rn = 1
-) s
-ON (
-       t.co_cd        = s.co_cd
-   AND t.line_pref    = s.line_pref
-   AND t.subline_pref = s.subline_pref
-   AND t.iss_pref     = s.iss_pref
-   AND t.pol_yy       = s.pol_yy
-   AND t.pol_seq_no   = s.pol_seq_no
-   AND t.ren_seq_no   = s.ren_seq_no
-   AND t.pol_type     = s.pol_type
-)
-WHEN MATCHED THEN
-UPDATE SET
-    t.fronting_referred = s.fronting_referred,
-    t.last_update_date = sysdate
-    where t.line_pref = 'FI';
-
-COMMIT;
-
 
 -- =============================================================================
--- STEP 22: UPDATE - UPDATE INTM NUMBER & INTERMEDIARY NAME 20.8s
--- =============================================================================
-
-MERGE INTO temp_niis_item_data t
-USING (
-    SELECT *
-    FROM (
-        -- 1️⃣ Invoice / commission intermediary (highest priority)
-        SELECT
-            a.co_cd,
-            a.line_pref,
-            a.subline_pref,
-            a.iss_pref,
-            a.pol_yy,
-            a.pol_seq_no,
-            a.ren_seq_no,
-            b.intm_no,
-            c.intm_name,
-            1 AS priority,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    a.co_cd, a.line_pref, a.subline_pref,
-                    a.iss_pref, a.pol_yy, a.pol_seq_no, a.ren_seq_no
-                ORDER BY 1
-            ) rn
-        FROM niis_invoice a
-        JOIN niis_invcomm b
-          ON a.co_cd = b.co_cd
-         AND a.line_pref = b.line_pref
-         AND a.bill_yy = b.bill_yy
-         AND a.bill_seq_no = b.bill_seq_no
-        JOIN intrmdry c
-          ON b.co_cd = c.co_cd
-         AND b.intm_no = c.intm_no
-        WHERE a.endt_seq_no = 0
-        and 'FI' in (a.schema_name,b.schema_name) -- schema
-
-        UNION ALL
-
-        -- 2️⃣ Fallback for pol_type = 'I'
-        SELECT
-            a.co_cd,
-            a.line_pref,
-            a.subline_pref,
-            a.iss_pref,
-            a.pol_yy,
-            a.pol_seq_no,
-            a.ren_seq_no,
-            b.ri_cd        AS intm_no,
-            c.ri_name      AS intm_name,
-            2 AS priority,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    a.co_cd, a.line_pref, a.subline_pref,
-                    a.iss_pref, a.pol_yy, a.pol_seq_no, a.ren_seq_no
-                ORDER BY 1
-            ) rn
-        FROM niis_polbasic a
-        JOIN niis_inpolicy b
-          ON a.pol_rec_no = b.pol_rec_no
-        JOIN niis_rinsurer c
-          ON a.co_cd = c.co_cd
-         AND b.ri_cd = c.ri_cd
-        WHERE a.pol_type = 'I'
-          AND a.endt_seq_no = 0
-          AND 'FI' in (b.schema_name,a.schema_name) --schema
-    )
-    WHERE rn = 1
-) s
-ON (
-       t.co_cd       = s.co_cd
-   AND t.line_pref   = s.line_pref
-   AND t.subline_pref = s.subline_pref
-   AND t.iss_pref   = s.iss_pref
-   AND t.pol_yy     = s.pol_yy
-   AND t.pol_seq_no = s.pol_seq_no
-   AND t.ren_seq_no = s.ren_seq_no
-)
-WHEN MATCHED THEN
-UPDATE SET
-    t.intm_number   = s.intm_no,
-    t.intermediary_name = s.intm_name,
-    t.last_update_date = sysdate
-    where t.line_pref = 'FI';
-
-COMMIT;
-
--- =============================================================================
--- STEP 23: UPDATE - UPDATE RISK LOC CODE 56.8s
+-- STEP 25: UPDATE - UPDATE RISK LOC CODE 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -1733,7 +1868,8 @@ USING (
         AND a.pol_seq_no = tmain.pol_seq_no
         AND a.ren_seq_no = tmain.ren_seq_no
         AND NVL(a.pol_stat,'0') <> '5'
-        AND a.schema_name = 'FI'
+        AND a.schema_name IN ('CAS','MH','MN') --schema 
+        AND a.line_pref IN ('AV','EN','GA','MH','MN')
     INNER JOIN niis_fireitem b
         ON b.pol_rec_no = a.pol_rec_no
         AND b.item_no = til.item_no
@@ -1760,7 +1896,7 @@ WHERE src.rn = 1
 COMMIT;
 
 -- =============================================================================
--- STEP 24: UPDATE - UPDATE RISK LOC DESC 12.2s
+-- STEP 26: UPDATE - UPDATE RISK LOC DESC 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data t
@@ -1784,75 +1920,13 @@ ON (
 WHEN MATCHED THEN
 UPDATE SET t.risk_loc_desc = src.risk_loc_desc,
 t.last_update_date = sysdate
-where t.line_pref = 'FI';
+where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
--- =============================================================================
--- STEP 25: UPDATE - UPDATE WITH EX-GRATIA
--- =============================================================================
-
-MERGE INTO temp_niis_item_data main
-USING (
-    SELECT DISTINCT
-        x.co_cd,
-        x.line_pref,
-        x.subline_pref,
-        x.iss_pref,
-        x.clm_yy,
-        x.clm_seq_no,
-        'Y' AS with_ex_gratia
-    FROM niis_clm_loss x
-    JOIN niis_clm_hist y
-      ON x.co_cd        = y.co_cd
-     AND x.line_pref    = y.line_pref
-     AND x.subline_pref = y.subline_pref
-     AND x.iss_pref     = y.iss_pref
-     AND x.clm_yy       = y.clm_yy
-     AND x.clm_seq_no   = y.clm_seq_no
-     AND x.hist_seq_no  = y.hist_seq_no
-    WHERE y.fla_stat_cd != 'C'
-      AND 'FI' IN (x.schema_name, y.schema_name)
-      AND (
-           INSTR(UPPER(y.remarks), 'GRATIA') <> 0
-        OR NVL(x.x_gratia_tag, 'N') = 'Y'
-      )
-      AND EXISTS (
-          SELECT 1
-          FROM temp_niis_item_data t
-          WHERE t.co_cd = x.co_cd
-            AND t.line_pref = x.line_pref
-            AND t.subline_pref = x.subline_pref
-            AND t.iss_pref = x.iss_pref
-            AND t.clm_yy = x.clm_yy
-            AND t.clm_seq_no = x.clm_seq_no
-      )
-) src
-ON (
-       main.co_cd        = src.co_cd
-   AND main.line_pref    = src.line_pref
-   AND main.subline_pref = src.subline_pref
-   AND main.iss_pref     = src.iss_pref
-   AND main.clm_yy       = src.clm_yy
-   AND main.clm_seq_no   = src.clm_seq_no
-)
-WHEN MATCHED THEN
-UPDATE SET main.with_ex_gratia = src.with_ex_gratia,
-main.last_update_date = sysdate
-where main.line_pref = 'FI';
-
-COMMIT;
-
-UPDATE temp_niis_item_data
-SET with_ex_gratia = 'N',
-last_update_date = sysdate
-WHERE with_ex_gratia IS NULL
-and line_pref = 'FI';
-
-COMMIT;
 
 -- =============================================================================
--- STEP 26: UPDATE - UPDATE CO INSURANCE, PISC LEAD CO I 50.3s
+-- STEP 26: UPDATE - UPDATE CO INSURANCE, PISC LEAD CO I
 -- =============================================================================
 MERGE INTO temp_niis_item_data main
 USING (
@@ -1877,7 +1951,8 @@ USING (
     JOIN niis_fire b
       ON a.pol_rec_no = b.pol_rec_no
     WHERE NVL(a.endt_seq_no, 0) = 0
-    AND a.schema_name = 'FI'
+    AND a.schema_name IN ('CAS','MH','MN') --schema 
+    AND a.line_pref IN ('AV','EN','GA','MH','MN')
 ) src
 ON (
        main.co_cd        = src.co_cd
@@ -1896,7 +1971,7 @@ UPDATE SET
     main.co_insurance   = src.share_tag,
     main.pol_rec_no     = src.pol_rec_no,
     main.last_update_date = sysdate
-    where main.line_pref = 'FI'
+    where main.line_pref IN ('AV','EN','GA','MH','MN')
     ;
 
 COMMIT;
@@ -1928,7 +2003,7 @@ UPDATE SET
             ELSE 'N'
         END,
     main.last_update_date = sysdate    
-where main.line_pref = 'FI'        ;
+where main.line_pref IN ('AV','EN','GA','MH','MN')        ;
 
 COMMIT;
 
@@ -1936,7 +2011,7 @@ UPDATE temp_niis_item_data
 SET pisc_lead_co_i = 'N',
 last_update_date = sysdate
 WHERE pisc_lead_co_i IS NULL
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT; 
 
@@ -1944,10 +2019,11 @@ UPDATE temp_niis_item_data
 SET co_insurance = 'N',
 last_update_date = sysdate
 WHERE NVL(pisc_share,0) = 0
-and line_pref = 'FI';
+and line_pref IN ('AV','EN','GA','MH','MN');
 
 
 COMMIT;
+
 
 -- =============================================================================
 -- STEP 27: UPDATE - UPDATE ORG TYPE 4.725
@@ -1987,7 +2063,8 @@ USING (
             ) rn
         FROM niis_polbasic
         WHERE endt_seq_no = 0
-          AND schema_name = 'FI'
+            AND schema_name IN ('CAS','MH','MN') --schema 
+            AND line_pref IN ('AV','EN','GA','MH','MN')
     )
     WHERE rn = 1
 ) src
@@ -2005,13 +2082,13 @@ UPDATE SET
     main.org_type = src.org_type,
     main.last_update_date = sysdate
 WHERE main.org_type IS NULL
-and main.line_pref = 'FI';
+and main.line_pref IN ('AV','EN','GA','MH','MN');
 
 
 commit;
 
 -- =============================================================================
--- STEP 28: UPDATE - PROCESS ASSURED NAME 24s
+-- STEP 28: UPDATE - PROCESS ASSURED NAME 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data t
@@ -2038,7 +2115,8 @@ USING (
             a.name_to_appear
         FROM niis_polbasic a
         WHERE NVL(a.pol_stat,'0') != '5'
-        AND a.schema_name = 'FI' --schema
+        AND a.schema_name IN ('CAS','MH','MN') --schema 
+        AND a.line_pref IN ('AV','EN','GA','MH','MN')
         AND a.eff_dt = (SELECT MAX(u.eff_dt)
                        FROM niis_polbasic u
                        WHERE u.co_cd = a.co_cd
@@ -2050,7 +2128,8 @@ USING (
                        AND u.ren_seq_no = a.ren_seq_no
                        AND NVL(u.pol_stat,'0') != '5'
                        AND u.name_to_appear IS NOT NULL
-                       AND u.schema_name = 'FI' --schema
+                       AND u.schema_name IN ('CAS','MH','MN') --schema 
+                       AND u.line_pref IN ('AV','EN','GA','MH','MN')
                        )
     ) pb1
         ON pb1.co_cd = main.co_cd
@@ -2072,7 +2151,8 @@ USING (
             name_to_appear
         FROM niis_polbasic
         WHERE endt_seq_no = 0
-        AND schema_name = 'FI'
+        AND schema_name IN ('CAS','MH','MN') --schema 
+        AND line_pref IN ('AV','EN','GA','MH','MN')
     ) pb2
         ON pb2.co_cd = main.co_cd
         AND pb2.line_pref = main.line_pref
@@ -2095,7 +2175,7 @@ ON (
 WHEN MATCHED THEN
     UPDATE SET t.assd_name = s.name_to_appear,
     t.last_update_date = sysdate
-    where t.line_pref = 'FI';
+    where t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -2131,12 +2211,12 @@ WHEN MATCHED THEN
 UPDATE SET
     main.assd_no = src.assd_no,
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN');
 
 commit;
 
 -- =============================================================================
--- STEP 30: UPDATE - LOCATION,CHANNEL & PRODUCT 47.6s
+-- STEP 30: UPDATE - LOCATION,CHANNEL & PRODUCT 
 -- =============================================================================
 
 MERGE INTO temp_niis_item_data main
@@ -2160,7 +2240,7 @@ USING (
             iss_pref,
             MAX(iss_name) KEEP (DENSE_RANK LAST ORDER BY updt_dt NULLS FIRST) AS iss_name
         FROM ADW_PROD_TGT.NIIS_ISSOURCE
-        WHERE SCHEMA_NAME = 'FI'
+        WHERE schema_name IN ('CAS','MH','MN') --schema 
         GROUP BY co_cd, iss_pref
     ) b
            ON b.co_cd     = a.co_cd
@@ -2182,7 +2262,8 @@ USING (
     ) e
            ON e.product_cd  = a.product_cd
     WHERE 1=1 
-    AND A.SCHEMA_NAME = 'FI'       
+    AND a.schema_name IN ('CAS','MH','MN') --schema 
+    AND a.line_pref IN ('AV','EN','GA','MH','MN')   
     GROUP BY
         a.co_cd,
         a.line_pref,
@@ -2209,22 +2290,22 @@ UPDATE SET
     main.product  = src.product,
     main.location = src.location,
     main.last_update_date = sysdate
-    where main.line_pref = 'FI';
+    where main.line_pref IN ('AV','EN','GA','MH','MN') ;
 
 COMMIT;
 
 UPDATE temp_niis_item_data
 SET product = CASE 
-    WHEN co_cd = 1 AND line_pref = 'FI' THEN 'Property'
-    WHEN co_cd = 4 AND line_pref = 'FI' THEN 'Special Lines'
+    WHEN co_cd = 1 AND line_pref = 'GA' THEN 'General Accident'
+    WHEN co_cd = 4 AND line_pref = 'GA' THEN 'Special Lines'
     ELSE product
 END,
     last_update_date = sysdate
 WHERE product IS NULL
-  AND ((co_cd = 1 AND line_pref = 'FI')
-    OR (co_cd = 4 AND line_pref = 'FI'));
+  AND ((co_cd = 1 AND line_pref = 'GA')
+    OR (co_cd = 4 AND line_pref = 'GA'));
 
-COMMIT;
+-- COMMIT;
 
 
 -- =============================================================================
@@ -2243,7 +2324,7 @@ WHERE EXISTS (
     FROM ADW_PROD_TGT.NIIS_COMPANY c
     WHERE c.co_cd = t.co_cd
 )
-and t.line_pref = 'FI';
+and t.line_pref IN ('AV','EN','GA','MH','MN');
 
 COMMIT;
 
@@ -2280,33 +2361,9 @@ WHERE
   =   NVL(c.itm_loss_paid,0)   + NVL(c.itm_expense_paid,0)
   AND NVL(c.itm_loss_reserve,0) > 1
   AND c.payment_dt IS NULL
-  and c.line_pref = 'FI';
+  and c.line_pref IN ('AV','EN','GA','MH','MN')
+  ;
 
 COMMIT;
 
--- =============================================================================
--- STEP 33: UPDATE - UPDATE STATUS 17.3
--- =============================================================================
-
-UPDATE temp_niis_item_data t
-SET t.status = (
-    SELECT s.clm_stat_des
-    FROM clm_stat s
-    WHERE s.co_cd = t.co_cd
-      AND s.clm_stat_cd = t.clm_stat_cd
-),
-t.last_update_date = sysdate
-WHERE EXISTS (
-    SELECT 1
-    FROM clm_stat s
-    WHERE s.co_cd = t.co_cd
-      AND s.clm_stat_cd = t.clm_stat_cd
-)
-and t.line_pref = 'FI'
-;
-
-COMMIT;
-
-
-
-END sp_niis_table_itemlvl_fi;
+END sp_niis_table_itemlvl_oth;
